@@ -71,7 +71,7 @@
 #### `getResource(String path)`
 
 - **Description**: 웹 애플리케이션 리소스를 URL객체로 반환.
-- **Returns**: 리소스 URL을 반환하며, 없으면 `null`을 반환합니다.
+- **Returns**: 리소스 URL을 반환하며, 없으면 `null`을 반환
 - **URL 객체**:
     - java.net.URL 클래스의 인스턴스로, 리소스의 위치를 나타냄.
     - 파일 시스템, 클래스패스, 네트워크 등 다양한 위치의 리소스를 가리킬 수 있음.
@@ -79,12 +79,27 @@
 
 #### `getResourceAsStream(String path)`
 
-- **Description**: 웹 애플리케이션 리소스를 스트림으로 조회합니다.
-- **Returns**: `InputStream`을 반환하며, 없으면 `null`을 반환합니다.
+- **Description**: 웹 애플리케이션 리소스를 스트림으로 조회.
+- **Returns**: `InputStream`을 반환하며, 없으면 `null`을 반환.
 
-### `getRealPath(String path)`
+#### `getRealPath(String path)`
 
-- **Description**: 웹 경로를 실제 파일 시스템 경로로 변환합니다.
-- **Returns**: 실제 경로 문자열을 반환하며, 변환할 수 없으면 `null`을 반환합니다.
+- **Description**: 웹 경로를 실제 파일 시스템 경로로 변환.
+- **Returns**: 실제 경로 문자열을 반환하며, 변환할 수 없으면 `null`을 반환.
 
----
+### Request Dispatcher
+
+- **RequestDispatcher**:
+    - `RequestDispatcher`는 요청을 다른 리소스(서블릿, JSP, HTML 등)로 포워딩하거나 포함할 수 있는 객체.
+    - `forward()` 메서드를 사용하여 요청을 다른 리소스로 전달하거나, `include()` 메서드를 사용하여 현재 응답에 다른 리소스의 출력을 포함 가능.
+
+#### `getRequestDispatcher(String path)`
+
+- **Description**: 경로 기반 요청 디스패처를 생성하거나 조회.
+- **Returns**: `RequestDispatcher`를 반환하며, 없으면 `null`을 반환.
+
+#### `getNamedDispatcher(String name)`
+
+- **Description**: 이름 기반 요청 디스패처를 생성하거나 조회.
+- **Returns**: `RequestDispatcher`를 반환하며, 없으면 `null`을 반환.
+
