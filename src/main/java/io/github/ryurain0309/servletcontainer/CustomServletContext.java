@@ -9,6 +9,7 @@ import java.net.URL;
 import java.util.Collections;
 import java.util.Enumeration;
 import java.util.EventListener;
+import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
@@ -16,6 +17,8 @@ import java.util.concurrent.ConcurrentHashMap;
 public class CustomServletContext implements ServletContext {
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final Map<String, String> initParameters = new ConcurrentHashMap<>();
+    private final Map<String, CustomServletRegistration> servletRegistrations = new LinkedHashMap<>();
+    private final Map<String, CustomFilterRegistration> filterRegistrations = new LinkedHashMap<>();
     private final ClassLoader classLoader = Thread.currentThread().getContextClassLoader();
 
     private final String contextPath;
@@ -169,17 +172,29 @@ public class CustomServletContext implements ServletContext {
 
     @Override
     public ServletRegistration.Dynamic addServlet(String servletName, String className) {
-        return null;
+        try {
+            Servlet servlet = (Servlet) classLoader.loadClass(className).getDeclaredConstructor().newInstance();
+            return addServlet(servletName, servlet);
+        } catch (Exception e) {
+            throw new RuntimeException("서블릿 클래스 로드 실패: " + className, e);
+        }
     }
 
     @Override
     public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
-        return null;
+        System.out.println("🎯 [서블릿 등록] 이름: " + servletName);
+        CustomServletRegistration registration = new CustomServletRegistration(servletName, servlet);
+        servletRegistrations.put(servletName, registration);
+        return registration;
     }
 
     @Override
     public ServletRegistration.Dynamic addServlet(String servletName, Class<? extends Servlet> servletClass) {
-        return null;
+        try {
+            return addServlet(servletName, servletClass.getDeclaredConstructor().newInstance());
+        } catch (Exception e) {
+            throw new RuntimeException("서블릿 인스턴스 생성 실패", e);
+        }
     }
 
     @Override
@@ -189,47 +204,75 @@ public class CustomServletContext implements ServletContext {
 
     @Override
     public <T extends Servlet> T createServlet(Class<T> c) throws ServletException {
-        return null;
+        try {
+            return c.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+            throw new ServletException("서블릿 생성 실패", e);
+        }
     }
 
     @Override
     public ServletRegistration getServletRegistration(String servletName) {
-        return null;
+        return servletRegistrations.get(servletName);
     }
 
     @Override
     public Map<String, ? extends ServletRegistration> getServletRegistrations() {
-        return Map.of();
+        return Collections.unmodifiableMap(servletRegistrations);
+    }
+
+    public Map<String, CustomServletRegistration> getCustomServletRegistrations() {
+        return Collections.unmodifiableMap(servletRegistrations);
     }
 
     @Override
     public FilterRegistration.Dynamic addFilter(String filterName, String className) {
-        return null;
+        try {
+            Filter filter = (Filter) classLoader.loadClass(className).getDeclaredConstructor().newInstance();
+            return addFilter(filterName, filter);
+        } catch (Exception e) {
+            throw new RuntimeException("필터 클래스 로드 실패: " + className, e);
+        }
     }
 
     @Override
     public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
-        return null;
+        System.out.println("🛡️ [필터 등록] 이름: " + filterName);
+        CustomFilterRegistration registration = new CustomFilterRegistration(filterName, filter);
+        filterRegistrations.put(filterName, registration);
+        return registration;
     }
 
     @Override
     public FilterRegistration.Dynamic addFilter(String filterName, Class<? extends Filter> filterClass) {
-        return null;
+        try {
+            return addFilter(filterName, filterClass.getDeclaredConstructor().newInstance());
+        } catch (Exception e) {
+            throw new RuntimeException("필터 인스턴스 생성 실패", e);
+        }
     }
 
     @Override
     public <T extends Filter> T createFilter(Class<T> c) throws ServletException {
-        return null;
+        try {
+            return c.getDeclaredConstructor().newInstance();
+        } catch (Exception e) {
+            throw new ServletException("필터 생성 실패", e);
+        }
     }
 
     @Override
     public FilterRegistration getFilterRegistration(String filterName) {
-        return null;
+        return filterRegistrations.get(filterName);
     }
 
     @Override
     public Map<String, ? extends FilterRegistration> getFilterRegistrations() {
-        return Map.of();
+        return Collections.unmodifiableMap(filterRegistrations);
+    }
+
+    public Map<String, CustomFilterRegistration> getCustomFilterRegistrations() {
+        return Collections.unmodifiableMap(filterRegistrations);
     }
 
     @Override

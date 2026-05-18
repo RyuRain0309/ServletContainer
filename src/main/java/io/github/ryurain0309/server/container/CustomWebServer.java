@@ -7,56 +7,29 @@ import jakarta.servlet.*;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.boot.web.server.WebServerException;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
-import org.springframework.cglib.proxy.Proxy;
 
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.util.Collections;
-import java.util.Set;
 
 public class CustomWebServer implements WebServer {
     private final int port = 8080;
     private Servlet dispatcherServlet;
-    private ServletContext servletContext;
+    private final CustomServletContext servletContext = new CustomServletContext();
 
     public CustomWebServer(ServletContextInitializer[] initializers) {
         try {
-            this.servletContext = new CustomServletContext() {
-                @Override
-                public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
-                    System.out.println("🎯 [서블릿 낚아채기 성공!] 이름: " + servletName);
-                    dispatcherServlet = servlet;
-                    return createDummyDynamic(ServletRegistration.Dynamic.class);
-                }
-
-                @Override
-                public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
-                    System.out.println("🛡️ [필터 등록 무시] 이름: " + filterName);
-                    return createDummyDynamic(FilterRegistration.Dynamic.class);
-                }
-
-                @SuppressWarnings("unchecked")
-                private <T> T createDummyDynamic(Class<T> type) {
-                    return (T) Proxy.newProxyInstance(
-                            getClass().getClassLoader(),
-                            new Class[]{type},
-                            (proxy, method, args) -> {
-                                Class<?> ret = method.getReturnType();
-                                if (ret == Set.class) return Collections.emptySet();
-                                if (ret == boolean.class) return false;
-                                if (ret == int.class) return 0;
-                                return null;
-                            }
-                    );
-                }
-            };
-
             for (ServletContextInitializer initializer : initializers) {
                 initializer.onStartup(servletContext);
             }
+
+            // onStartup 이후 컨텍스트에 등록된 서블릿을 가져온다
+            dispatcherServlet = servletContext.getCustomServletRegistrations().values().stream()
+                    .map(reg -> reg.getServlet())
+                    .findFirst()
+                    .orElse(null);
         } catch (Exception e) {
             throw new RuntimeException("서블릿 컨테이너 초기화 실패", e);
         }
