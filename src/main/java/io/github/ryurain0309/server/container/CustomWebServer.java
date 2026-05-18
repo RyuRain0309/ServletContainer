@@ -26,13 +26,13 @@ import java.util.concurrent.atomic.AtomicInteger;
 @Slf4j
 public class CustomWebServer implements WebServer {
 
-    // 스레드 풀 설정
-    private static final int CORE_POOL_SIZE  = Runtime.getRuntime().availableProcessors();
-    private static final int MAX_POOL_SIZE   = 200;
-    private static final int QUEUE_CAPACITY  = 100;
     private static final long KEEP_ALIVE_SEC = 60L;
 
     private final int port = 8080;
+    private final int corePoolSize;
+    private final int maxPoolSize;
+    private final int queueCapacity;
+
     private Servlet dispatcherServlet;
     private List<Filter> filters;
     private final CustomServletContext servletContext = new CustomServletContext();
@@ -41,6 +41,17 @@ public class CustomWebServer implements WebServer {
     private volatile ServerSocket serverSocket;
 
     public CustomWebServer(ServletContextInitializer[] initializers) {
+        this(initializers,
+                Runtime.getRuntime().availableProcessors(),
+                200,
+                100);
+    }
+
+    public CustomWebServer(ServletContextInitializer[] initializers,
+                           int corePoolSize, int maxPoolSize, int queueCapacity) {
+        this.corePoolSize   = corePoolSize;
+        this.maxPoolSize    = maxPoolSize;
+        this.queueCapacity  = queueCapacity;
         try {
             for (ServletContextInitializer initializer : initializers) {
                 initializer.onStartup(servletContext);
@@ -65,10 +76,10 @@ public class CustomWebServer implements WebServer {
         initFilters();
 
         executor = new ThreadPoolExecutor(
-                CORE_POOL_SIZE,
-                MAX_POOL_SIZE,
+                corePoolSize,
+                maxPoolSize,
                 KEEP_ALIVE_SEC, TimeUnit.SECONDS,
-                new LinkedBlockingQueue<>(QUEUE_CAPACITY),
+                new LinkedBlockingQueue<>(queueCapacity),
                 new WorkerThreadFactory(),
                 this::rejectRequest
         );
@@ -167,7 +178,7 @@ public class CustomWebServer implements WebServer {
     private void printBanner() {
         log.info("=========================================");
         log.info("[MyTomcat] 서버 시작 완료 - 포트: {}", port);
-        log.info("[MyTomcat] 스레드 풀: core={}, max={}, queue={}", CORE_POOL_SIZE, MAX_POOL_SIZE, QUEUE_CAPACITY);
+        log.info("[MyTomcat] 스레드 풀: core={}, max={}, queue={}", corePoolSize, maxPoolSize, queueCapacity);
         log.info("=========================================");
     }
 
