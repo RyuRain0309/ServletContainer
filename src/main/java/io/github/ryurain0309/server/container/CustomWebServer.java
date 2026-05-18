@@ -2,7 +2,9 @@ package io.github.ryurain0309.server.container;
 
 import io.github.ryurain0309.server.http.CustomHttpServletRequest;
 import io.github.ryurain0309.server.http.CustomHttpServletResponse;
+import io.github.ryurain0309.servletcontainer.CustomFilterRegistration;
 import io.github.ryurain0309.servletcontainer.CustomServletContext;
+import io.github.ryurain0309.servletcontainer.CustomServletRegistration;
 import jakarta.servlet.*;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.boot.web.server.WebServerException;
@@ -13,10 +15,13 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.util.List;
+import java.util.Map;
 
 public class CustomWebServer implements WebServer {
     private final int port = 8080;
     private Servlet dispatcherServlet;
+    private List<Filter> filters;
     private final CustomServletContext servletContext = new CustomServletContext();
 
     public CustomWebServer(ServletContextInitializer[] initializers) {
@@ -25,11 +30,14 @@ public class CustomWebServer implements WebServer {
                 initializer.onStartup(servletContext);
             }
 
-            // onStartup 이후 컨텍스트에 등록된 서블릿을 가져온다
             dispatcherServlet = servletContext.getCustomServletRegistrations().values().stream()
-                    .map(reg -> reg.getServlet())
+                    .map(CustomServletRegistration::getServlet)
                     .findFirst()
                     .orElse(null);
+
+            filters = servletContext.getCustomFilterRegistrations().values().stream()
+                    .map(CustomFilterRegistration::getFilter)
+                    .toList();
         } catch (Exception e) {
             throw new RuntimeException("서블릿 컨테이너 초기화 실패", e);
         }
@@ -37,13 +45,15 @@ public class CustomWebServer implements WebServer {
 
     @Override
     public void start() throws WebServerException {
-        initDispatcherServlet();
+        initServlet();
+        initFilters();
 
         new Thread(() -> {
             try (ServerSocket server = new ServerSocket(port)) {
                 System.out.println("=========================================");
                 System.out.println("[MyTomcat] 서버 시작 완료 - 포트: " + port);
                 System.out.println("DispatcherServlet 준비: " + (dispatcherServlet != null));
+                System.out.println("필터 개수: " + filters.size());
                 System.out.println("=========================================");
 
                 while (true) {
@@ -56,12 +66,24 @@ public class CustomWebServer implements WebServer {
         }).start();
     }
 
-    private void initDispatcherServlet() throws WebServerException {
+    private void initServlet() throws WebServerException {
         if (dispatcherServlet == null) return;
         try {
             dispatcherServlet.init(new CustomServletConfig("dispatcherServlet", servletContext));
         } catch (ServletException e) {
             throw new WebServerException("DispatcherServlet 초기화 실패", e);
+        }
+    }
+
+    private void initFilters() throws WebServerException {
+        for (Map.Entry<String, CustomFilterRegistration> entry :
+                servletContext.getCustomFilterRegistrations().entrySet()) {
+            try {
+                FilterConfig config = new CustomFilterConfig(entry.getKey(), servletContext);
+                entry.getValue().getFilter().init(config);
+            } catch (ServletException e) {
+                throw new WebServerException("필터 초기화 실패: " + entry.getKey(), e);
+            }
         }
     }
 
@@ -76,7 +98,7 @@ public class CustomWebServer implements WebServer {
             System.out.println("[" + request.getMethod() + "] " + request.getRequestURI());
 
             if (dispatcherServlet != null) {
-                dispatcherServlet.service(request, response);
+                new CustomFilterChain(filters, dispatcherServlet).doFilter(request, response);
             } else {
                 response.sendError(503, "DispatcherServlet이 초기화되지 않았습니다.");
             }
