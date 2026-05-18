@@ -15,14 +15,28 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
+import java.net.SocketException;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Map;
+import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 
 public class CustomWebServer implements WebServer {
+
+    // 스레드 풀 설정
+    private static final int CORE_POOL_SIZE  = Runtime.getRuntime().availableProcessors();
+    private static final int MAX_POOL_SIZE   = 200;
+    private static final int QUEUE_CAPACITY  = 100;
+    private static final long KEEP_ALIVE_SEC = 60L;
+
     private final int port = 8080;
     private Servlet dispatcherServlet;
     private List<Filter> filters;
     private final CustomServletContext servletContext = new CustomServletContext();
+
+    private ThreadPoolExecutor executor;
+    private volatile ServerSocket serverSocket;
 
     public CustomWebServer(ServletContextInitializer[] initializers) {
         try {
@@ -48,22 +62,112 @@ public class CustomWebServer implements WebServer {
         initServlet();
         initFilters();
 
-        new Thread(() -> {
-            try (ServerSocket server = new ServerSocket(port)) {
-                System.out.println("=========================================");
-                System.out.println("[MyTomcat] 서버 시작 완료 - 포트: " + port);
-                System.out.println("DispatcherServlet 준비: " + (dispatcherServlet != null));
-                System.out.println("필터 개수: " + filters.size());
-                System.out.println("=========================================");
+        executor = new ThreadPoolExecutor(
+                CORE_POOL_SIZE,
+                MAX_POOL_SIZE,
+                KEEP_ALIVE_SEC, TimeUnit.SECONDS,
+                new LinkedBlockingQueue<>(QUEUE_CAPACITY),
+                new WorkerThreadFactory(),
+                this::rejectRequest
+        );
 
-                while (true) {
-                    Socket socket = server.accept();
-                    handleRequest(socket);
+        // acceptor 스레드는 non-daemon: JVM이 살아있어야 하므로
+        // worker 스레드는 daemon: acceptor가 끝나면 자동 종료
+        Thread acceptor = new Thread(this::acceptLoop, "acceptor");
+        acceptor.start();
+    }
+
+    private void acceptLoop() {
+        try {
+            serverSocket = new ServerSocket(port);
+            printBanner();
+
+            while (!serverSocket.isClosed()) {
+                try {
+                    Socket socket = serverSocket.accept();
+                    executor.execute(new RequestTask(socket));
+                } catch (SocketException e) {
+                    if (serverSocket.isClosed()) break; // stop()으로 인한 정상 종료
+                    System.err.println("소켓 오류: " + e.getMessage());
                 }
-            } catch (IOException e) {
-                throw new RuntimeException("서버 소켓 오류", e);
             }
-        }).start();
+        } catch (IOException e) {
+            throw new RuntimeException("서버 소켓 오류", e);
+        }
+    }
+
+    // 큐 포화 시 503으로 즉시 응답
+    private void rejectRequest(Runnable task, ThreadPoolExecutor pool) {
+        if (!(task instanceof RequestTask rt)) return;
+        try (Socket s = rt.socket) {
+            byte[] body = "503 Service Unavailable".getBytes(StandardCharsets.UTF_8);
+            String header = "HTTP/1.1 503 Service Unavailable\r\n" +
+                    "Content-Type: text/plain; charset=UTF-8\r\n" +
+                    "Content-Length: " + body.length + "\r\n\r\n";
+            s.getOutputStream().write(header.getBytes(StandardCharsets.UTF_8));
+            s.getOutputStream().write(body);
+            System.err.println("⚠️  요청 거부 (큐 포화): " + s.getRemoteSocketAddress());
+        } catch (IOException ignored) {}
+    }
+
+    private void handleRequest(Socket socket) {
+        try (socket) {
+            InputStream in = socket.getInputStream();
+            OutputStream out = socket.getOutputStream();
+
+            CustomHttpServletRequest request = new CustomHttpServletRequest(in, servletContext);
+            CustomHttpServletResponse response = new CustomHttpServletResponse(out);
+
+            System.out.printf("[%s] [%s] %s (active=%d, queued=%d)%n",
+                    Thread.currentThread().getName(),
+                    request.getMethod(),
+                    request.getRequestURI(),
+                    executor.getActiveCount(),
+                    executor.getQueue().size());
+
+            if (dispatcherServlet != null) {
+                new CustomFilterChain(filters, dispatcherServlet).doFilter(request, response);
+            } else {
+                response.sendError(503, "DispatcherServlet이 초기화되지 않았습니다.");
+            }
+
+            response.flushBuffer();
+        } catch (Exception e) {
+            System.err.println("❌ 요청 처리 오류: " + e.getMessage());
+        }
+    }
+
+    @Override
+    public void stop() throws WebServerException {
+        // 1. 새 연결 차단
+        if (serverSocket != null && !serverSocket.isClosed()) {
+            try { serverSocket.close(); } catch (IOException ignored) {}
+        }
+        // 2. 진행 중인 요청을 마저 처리하고 종료 (최대 30초 대기)
+        if (executor != null) {
+            executor.shutdown();
+            try {
+                if (!executor.awaitTermination(30, TimeUnit.SECONDS)) {
+                    executor.shutdownNow();
+                }
+            } catch (InterruptedException e) {
+                executor.shutdownNow();
+                Thread.currentThread().interrupt();
+            }
+        }
+    }
+
+    @Override
+    public int getPort() {
+        return port;
+    }
+
+    private void printBanner() {
+        System.out.println("=========================================");
+        System.out.println("[MyTomcat] 서버 시작 완료 - 포트: " + port);
+        System.out.printf("[MyTomcat] 스레드 풀: core=%d, max=%d, queue=%d%n",
+                CORE_POOL_SIZE, MAX_POOL_SIZE, QUEUE_CAPACITY);
+        System.out.println("=========================================");
     }
 
     private void initServlet() throws WebServerException {
@@ -87,34 +191,28 @@ public class CustomWebServer implements WebServer {
         }
     }
 
-    private void handleRequest(Socket socket) {
-        try (socket) {
-            InputStream in = socket.getInputStream();
-            OutputStream out = socket.getOutputStream();
+    // 요청 하나를 하나의 Task로 감싸서 스레드 풀에 제출
+    private class RequestTask implements Runnable {
+        final Socket socket;
 
-            CustomHttpServletRequest request = new CustomHttpServletRequest(in, servletContext);
-            CustomHttpServletResponse response = new CustomHttpServletResponse(out);
+        RequestTask(Socket socket) {
+            this.socket = socket;
+        }
 
-            System.out.println("[" + request.getMethod() + "] " + request.getRequestURI());
-
-            if (dispatcherServlet != null) {
-                new CustomFilterChain(filters, dispatcherServlet).doFilter(request, response);
-            } else {
-                response.sendError(503, "DispatcherServlet이 초기화되지 않았습니다.");
-            }
-
-            response.flushBuffer();
-        } catch (Exception e) {
-            System.err.println("❌ 요청 처리 오류: " + e.getMessage());
+        @Override
+        public void run() {
+            handleRequest(socket);
         }
     }
 
-    @Override
-    public void stop() throws WebServerException {
-    }
+    private static class WorkerThreadFactory implements ThreadFactory {
+        private final AtomicInteger count = new AtomicInteger(1);
 
-    @Override
-    public int getPort() {
-        return port;
+        @Override
+        public Thread newThread(Runnable r) {
+            Thread t = new Thread(r, "worker-" + count.getAndIncrement());
+            t.setDaemon(true);
+            return t;
+        }
     }
 }
