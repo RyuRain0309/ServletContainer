@@ -6,6 +6,7 @@ import io.github.ryurain0309.servletcontainer.CustomFilterRegistration;
 import io.github.ryurain0309.servletcontainer.CustomServletContext;
 import io.github.ryurain0309.servletcontainer.CustomServletRegistration;
 import jakarta.servlet.*;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.boot.web.server.WebServer;
 import org.springframework.boot.web.server.WebServerException;
 import org.springframework.boot.web.servlet.ServletContextInitializer;
@@ -22,6 +23,7 @@ import java.util.Map;
 import java.util.concurrent.*;
 import java.util.concurrent.atomic.AtomicInteger;
 
+@Slf4j
 public class CustomWebServer implements WebServer {
 
     // 스레드 풀 설정
@@ -88,7 +90,7 @@ public class CustomWebServer implements WebServer {
                     executor.execute(new RequestTask(socket));
                 } catch (SocketException e) {
                     if (serverSocket.isClosed()) break; // stop()으로 인한 정상 종료
-                    System.err.println("소켓 오류: " + e.getMessage());
+                    log.error("소켓 오류: {}", e.getMessage());
                 }
             }
         } catch (IOException e) {
@@ -106,7 +108,7 @@ public class CustomWebServer implements WebServer {
                     "Content-Length: " + body.length + "\r\n\r\n";
             s.getOutputStream().write(header.getBytes(StandardCharsets.UTF_8));
             s.getOutputStream().write(body);
-            System.err.println("⚠️  요청 거부 (큐 포화): " + s.getRemoteSocketAddress());
+            log.warn("⚠️  요청 거부 (큐 포화): {}", s.getRemoteSocketAddress());
         } catch (IOException ignored) {}
     }
 
@@ -118,7 +120,7 @@ public class CustomWebServer implements WebServer {
             CustomHttpServletRequest request = new CustomHttpServletRequest(in, servletContext);
             CustomHttpServletResponse response = new CustomHttpServletResponse(out);
 
-            System.out.printf("[%s] [%s] %s (active=%d, queued=%d)%n",
+            log.info("[{}] [{}] {} (active={}, queued={})",
                     Thread.currentThread().getName(),
                     request.getMethod(),
                     request.getRequestURI(),
@@ -133,7 +135,7 @@ public class CustomWebServer implements WebServer {
 
             response.flushBuffer();
         } catch (Exception e) {
-            System.err.println("❌ 요청 처리 오류: " + e.getMessage());
+            log.error("❌ 요청 처리 오류", e);
         }
     }
 
@@ -163,11 +165,10 @@ public class CustomWebServer implements WebServer {
     }
 
     private void printBanner() {
-        System.out.println("=========================================");
-        System.out.println("[MyTomcat] 서버 시작 완료 - 포트: " + port);
-        System.out.printf("[MyTomcat] 스레드 풀: core=%d, max=%d, queue=%d%n",
-                CORE_POOL_SIZE, MAX_POOL_SIZE, QUEUE_CAPACITY);
-        System.out.println("=========================================");
+        log.info("=========================================");
+        log.info("[MyTomcat] 서버 시작 완료 - 포트: {}", port);
+        log.info("[MyTomcat] 스레드 풀: core={}, max={}, queue={}", CORE_POOL_SIZE, MAX_POOL_SIZE, QUEUE_CAPACITY);
+        log.info("=========================================");
     }
 
     private void initServlet() throws WebServerException {
