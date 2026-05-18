@@ -1,0 +1,9 @@
+server:
+  port: 8080
+  tomcat:
+    threads:
+      max: 200          # 최대 워커 스레드 수 (CustomWebServer MAX_POOL_SIZE와 동일)
+      min-spare: 10     # 항상 유지할 최소 스레드 수 (corePoolSize 유사)
+    accept-count: 100   # 모든 스레드 사용 중일 때 대기 큐 크기
+    max-connections: 8192  # Poller가 동시에 처리할 수 있는 최대 연결 수 (NIO 강점)
+    connection-timeout: 20000  # 연결 유지 타임아웃 (ms)
