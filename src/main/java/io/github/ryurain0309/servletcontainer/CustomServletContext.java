@@ -2,6 +2,7 @@ package io.github.ryurain0309.servletcontainer;
 
 import jakarta.servlet.*;
 import jakarta.servlet.descriptor.JspConfigDescriptor;
+import lombok.extern.slf4j.Slf4j;
 
 import java.io.InputStream;
 import java.net.MalformedURLException;
@@ -14,6 +15,7 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.ConcurrentHashMap;
 
+@Slf4j
 public class CustomServletContext implements ServletContext {
     private final Map<String, Object> attributes = new ConcurrentHashMap<>();
     private final Map<String, String> initParameters = new ConcurrentHashMap<>();
@@ -111,13 +113,12 @@ public class CustomServletContext implements ServletContext {
 
     @Override
     public void log(String msg) {
-        System.out.println("[ServletContext] " + msg);
+        log.info(msg);
     }
 
     @Override
     public void log(String message, Throwable throwable) {
-        System.err.println("[ServletContext] " + message);
-        throwable.printStackTrace();
+        log.error(message, throwable);
     }
 
     @Override
@@ -184,7 +185,7 @@ public class CustomServletContext implements ServletContext {
 
     @Override
     public ServletRegistration.Dynamic addServlet(String servletName, Servlet servlet) {
-        System.out.println("🎯 [서블릿 등록] 이름: " + servletName);
+        log.info("🎯 [서블릿 등록] 이름: {}", servletName);
         CustomServletRegistration registration = new CustomServletRegistration(servletName, servlet);
         servletRegistrations.put(servletName, registration);
         return registration;
@@ -239,7 +240,7 @@ public class CustomServletContext implements ServletContext {
 
     @Override
     public FilterRegistration.Dynamic addFilter(String filterName, Filter filter) {
-        System.out.println("🛡️ [필터 등록] 이름: " + filterName);
+        log.info("🛡️ [필터 등록] 이름: {}", filterName);
         CustomFilterRegistration registration = new CustomFilterRegistration(filterName, filter);
         filterRegistrations.put(filterName, registration);
         return registration;
