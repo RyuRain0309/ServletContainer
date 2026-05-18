@@ -1,5 +1,7 @@
 package io.github.ryurain0309.server.container;
 
+import io.github.ryurain0309.server.http.CustomHttpServletRequest;
+import io.github.ryurain0309.server.http.CustomHttpServletResponse;
 import io.github.ryurain0309.servletcontainer.CustomServletContext;
 import jakarta.servlet.*;
 import org.springframework.boot.web.server.WebServer;
@@ -8,9 +10,10 @@ import org.springframework.boot.web.servlet.ServletContextInitializer;
 import org.springframework.cglib.proxy.Proxy;
 
 import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
 import java.net.ServerSocket;
 import java.net.Socket;
-import java.nio.charset.StandardCharsets;
 import java.util.Collections;
 import java.util.Set;
 
@@ -61,46 +64,54 @@ public class CustomWebServer implements WebServer {
 
     @Override
     public void start() throws WebServerException {
+        initDispatcherServlet();
+
         new Thread(() -> {
             try (ServerSocket server = new ServerSocket(port)) {
                 System.out.println("=========================================");
-                System.out.println("[MyTomcat] 스프링 부트에 완벽하게 이식되었습니다!");
-                System.out.println("디스패처 서블릿 준비 완료: " + (dispatcherServlet != null));
+                System.out.println("[MyTomcat] 서버 시작 완료 - 포트: " + port);
+                System.out.println("DispatcherServlet 준비: " + (dispatcherServlet != null));
                 System.out.println("=========================================");
+
                 while (true) {
-                    try (Socket socket = server.accept()) {
-                        System.out.println("📬 브라우저 접속 감지!");
-
-                        java.io.InputStream in = socket.getInputStream();
-                        java.io.OutputStream out = socket.getOutputStream();
-                        java.io.BufferedReader reader = new java.io.BufferedReader(
-                                new java.io.InputStreamReader(in, "UTF-8"));
-
-                        String requestLine = reader.readLine();
-                        if (requestLine == null) continue;
-                        System.out.println("📥 브라우저의 주문: " + requestLine);
-
-                        String headerLine;
-                        while ((headerLine = reader.readLine()) != null && !headerLine.isEmpty()) {
-                        }
-
-                        String body = "<h1>My Embedded Container Works!</h1><p>당신의 주문: " + requestLine + "</p>";
-                        String response = "HTTP/1.1 200 OK\r\n" +
-                                "Content-Type: text/html; charset=UTF-8\r\n" +
-                                "Content-Length: " + body.getBytes(StandardCharsets.UTF_8).length + "\r\n" +
-                                "\r\n" +
-                                body;
-
-                        out.write(response.getBytes(StandardCharsets.UTF_8));
-                        out.flush();
-                    } catch (Exception e) {
-                        System.out.println("❌ 통신 에러: " + e.getMessage());
-                    }
+                    Socket socket = server.accept();
+                    handleRequest(socket);
                 }
             } catch (IOException e) {
-                e.printStackTrace();
+                throw new RuntimeException("서버 소켓 오류", e);
             }
         }).start();
+    }
+
+    private void initDispatcherServlet() throws WebServerException {
+        if (dispatcherServlet == null) return;
+        try {
+            dispatcherServlet.init(new CustomServletConfig("dispatcherServlet", servletContext));
+        } catch (ServletException e) {
+            throw new WebServerException("DispatcherServlet 초기화 실패", e);
+        }
+    }
+
+    private void handleRequest(Socket socket) {
+        try (socket) {
+            InputStream in = socket.getInputStream();
+            OutputStream out = socket.getOutputStream();
+
+            CustomHttpServletRequest request = new CustomHttpServletRequest(in, servletContext);
+            CustomHttpServletResponse response = new CustomHttpServletResponse(out);
+
+            System.out.println("[" + request.getMethod() + "] " + request.getRequestURI());
+
+            if (dispatcherServlet != null) {
+                dispatcherServlet.service(request, response);
+            } else {
+                response.sendError(503, "DispatcherServlet이 초기화되지 않았습니다.");
+            }
+
+            response.flushBuffer();
+        } catch (Exception e) {
+            System.err.println("❌ 요청 처리 오류: " + e.getMessage());
+        }
     }
 
     @Override
