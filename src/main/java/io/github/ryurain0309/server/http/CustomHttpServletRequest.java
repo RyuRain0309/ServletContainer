@@ -309,7 +309,9 @@ public class CustomHttpServletRequest implements HttpServletRequest {
     public boolean isSecure() { return false; }
 
     @Override
-    public RequestDispatcher getRequestDispatcher(String path) { return null; }
+    public RequestDispatcher getRequestDispatcher(String path) {
+        return servletContext.getRequestDispatcher(path);
+    }
 
     @Override
     public ServletContext getServletContext() { return servletContext; }

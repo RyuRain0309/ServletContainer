@@ -89,17 +89,19 @@ public class CustomServletContext implements ServletContext {
 
     @Override
     public URL getResource(String path) throws MalformedURLException {
-        return null;
+        String resourcePath = "static" + (path.startsWith("/") ? path : "/" + path);
+        return classLoader.getResource(resourcePath);
     }
 
     @Override
     public InputStream getResourceAsStream(String path) {
-        return null;
+        String resourcePath = "static" + (path.startsWith("/") ? path : "/" + path);
+        return classLoader.getResourceAsStream(resourcePath);
     }
 
     @Override
     public RequestDispatcher getRequestDispatcher(String path) {
-        return null;
+        return new CustomRequestDispatcher(path, classLoader);
     }
 
     @Override
